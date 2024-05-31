@@ -1,23 +1,43 @@
 # pylint: disable=missing-class-docstring,missing-function-docstring,missing-module-docstring
 
+from typing import Any
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 
 import opcodes
 from llexer import TokenStream, ParseError
 from lparser import InstructionStream, parse_chunk
 
-DEBUG = False
+DEBUG = True
 
 bound = object()
 
-class Interpreter():
+@dataclass
+class Block:
+    break_addr: int
+    stack_level: int  # TODO: Redundant for everything but `for`
+    locals: dict[str, Any]
+
+@dataclass
+class Frame:
+    strings: list[str]
+    ops: list[tuple[opcodes.Opcode, int]]
+    ip: int
+
+    upvalues: dict[str, dict[str, Any]]  # each entry refers to a scope that contains the upvalue in question
+
+    return_limit: int | None
+
+    block_stack: list[Block]
+
+class Interpreter:
 
     def __init__(self, env):
-        self.ip = 0
         self.stack = []
         self.call_stack = []
         self.global_env = env
         self.global_env["_G"] = self.global_env
+        self.repr_memo = None
 
     def pop(self, expect=None):
         # TODO: Reimplement source info (local/upvalue/global)
@@ -46,48 +66,50 @@ class Interpreter():
             return len(self.stack)
 
     def repr_value(self, value):
-        if value is None:
-            return "nil"
-        match value:
-            case str(x) | float(x):
-                return repr(x)
-            case bool(x):
-                return repr(x).lower()
-            case dict(x):
-                return "{" + ", ".join(
-                    f"{k}={self.repr_value(v)}" if isinstance(k, str) else f"[{self.repr_value(k)}]={self.repr_value(v)}"
-                    for k, v in x.items()) + "}"
-            case tuple(x):
-                return f"func({', '.join(x[0])})"
-            case int(x):
-                return f"code at {x}"
-            case [idx, table, _del_on_nil]:
-                table_repr = self.repr_value(table)
-                if len(table_repr) > 20:
-                    table_repr = table_repr[:17] + "..."
-                return f"{table_repr}[{idx!r}]"
-            case x if x is bound:
-                return "|"
-        return f"??? {value}"
+        tl = False
+        if self.repr_memo is None:
+            tl = True
+            self.repr_memo = set()
+        try:
+            if value is None:
+                return "nil"
+            match value:
+                case str(x) | float(x):
+                    return repr(x)
+                case bool(x):
+                    return repr(x).lower()
+                case dict(x):
+                    if id(value) in self.repr_memo:
+                        return "{...}"
+                    self.repr_memo.add(id(value))
+                    return "{" + ", ".join(
+                        f"{k}={self.repr_value(v)}" if isinstance(k, str) else f"[{self.repr_value(k)}]={self.repr_value(v)}"
+                        for k, v in x.items()) + "}"
+                case tuple(x):
+                    return f"func({', '.join(x[0])})"
+                case int(x):
+                    return f"code({x})"
+                case [idx, table, _del_on_nil]:
+                    table_repr = self.repr_value(table)
+                    if len(table_repr) > 20:
+                        table_repr = table_repr[:17] + "..."
+                    return f"{table_repr}[{idx!r}]"
+                case x if x is bound:
+                    return "|"
+            return f"??? {value}"
+        finally:
+            if tl:
+                self.repr_memo = None
 
     def run(self, call_stack_level):
-        self.ip, _, _, _, bytecode = self.call_stack[-1]
-        strings, ops = opcodes.decode_bytecode(bytecode)
         while True:
-            if call_stack_level is not None and len(self.call_stack) <= call_stack_level:
+            if call_stack_level is None and self.call_stack[-1].ip >= len(self.call_stack[-1].ops):
                 break
-            if call_stack_level is None and self.ip >= len(ops):
-                break
-            opcode, offs = ops[self.ip]
+            opcode, offs = self.call_stack[-1].ops[self.call_stack[-1].ip]
             if DEBUG:
-                call_stack_debug = "; ".join(
-                    f"[{','.join(localvars.keys())}]"
-                    if addr == -1 else
-                    f"[{','.join(localvars.keys())}],[{','.join(upvalues.keys())}]"
-                    for addr, localvars, upvalues, _, _ in self.call_stack
-                )
+                call_stack_debug = "; ".join(f"[{','.join(j for i in frame.block_stack for j in i.locals.keys())}],[{','.join(frame.upvalues.keys())}]" for frame in self.call_stack)
                 stack_debug = " ".join(self.repr_value(v) for v in self.stack)
-                print(f"{self.ip:04x}{' '*len(self.call_stack)+str(opcode):<50} | {stack_debug:<100} | {call_stack_debug}")
+                print(f"{self.call_stack[-1].ip:04x}{' '*len(self.call_stack)+str(opcode):<50} | {stack_debug:<100} | {call_stack_debug}")
 
             match opcode:
                 case opcodes.PushString(arg):
@@ -101,22 +123,28 @@ class Interpreter():
                 case opcodes.PushFalse():
                     self.stack.append(False)
                 case opcodes.PushInline(arg):
-                    self.stack.append(self.ip + 1)
-                    self.ip += arg
+                    self.stack.append(self.call_stack[-1].ip + 1)
+                    self.call_stack[-1].ip += arg
                 case opcodes.PushFunction(arg):
                     # NOTE: This assumes that the first instruction of a function is always UpvalueInfo. That's kind of ugly
                     argnames = reversed([self.pop() for _ in range(arg)])
                     offs = self.pop()
-                    upvalues_string = ops[offs][0].arg
+                    upvalues_string = self.call_stack[-1].ops[offs][0].arg
                     upvalues = {}
                     for idx in zip(upvalues_string[::4], upvalues_string[1::4], upvalues_string[2::4], upvalues_string[3::4]):
-                        upvalue_name = strings[int("".join(idx))]
-                        for _, scope, scope_upvalues, _, _ in self.call_stack[::-1]:
-                            if upvalue_name in scope_upvalues:
-                                upvalues[upvalue_name] = scope_upvalues[upvalue_name]
-                            elif upvalue_name in scope:
-                                upvalues[upvalue_name] = scope
-                    self.stack.append((tuple(argnames), offs, bytecode, upvalues))
+                        upvalue_name = self.call_stack[-1].strings[int("".join(idx))]
+                        for frame in self.call_stack[::-1]:
+                            if upvalue_name in frame.upvalues:
+                                upvalues[upvalue_name] = frame.upvalues[upvalue_name]
+                                break
+                            for block in frame.block_stack:
+                                if upvalue_name in block.locals:
+                                    upvalues[upvalue_name] = block.locals
+                                    break
+                            else:
+                                continue
+                            break
+                    self.stack.append((tuple(argnames), offs, (self.call_stack[-1].strings, self.call_stack[-1].ops), upvalues))
                 case opcodes.PushTable(arg):
                     trailing_values = []
                     while self.get_top() > 0:
@@ -139,21 +167,25 @@ class Interpreter():
                         table[float(i)] = v
                     self.stack.append(table)
                 case opcodes.RefName(arg):
-                    _, localvars, upvalues, _, _ = self.call_stack[-1]
-                    if arg in localvars:
-                        self.stack.append([arg, localvars, False])
-                    elif arg in upvalues:
-                        self.stack.append([arg, upvalues[arg], False])
+                    for block in self.call_stack[-1].block_stack[::-1]:
+                        if arg in block.locals:
+                            self.stack.append([arg, block.locals, False])
+                            break
                     else:
-                        self.stack.append([arg, upvalues["_ENV"]["_ENV"], False])
+                        if arg in self.call_stack[-1].upvalues:
+                            self.stack.append([arg, self.call_stack[-1].upvalues[arg], False])
+                        else:
+                            self.stack.append([arg, self.call_stack[-1].upvalues["_ENV"]["_ENV"], False])
                 case opcodes.GetName(arg):
-                    _, localvars, upvalues, _, _ = self.call_stack[-1]
-                    if arg in localvars:
-                        self.stack.append(localvars[arg])
-                    elif arg in upvalues:
-                        self.stack.append(upvalues[arg][arg])
+                    for block in self.call_stack[-1].block_stack[::-1]:
+                        if arg in block.locals:
+                            self.stack.append(block.locals[arg])
+                            break
                     else:
-                        self.stack.append(upvalues["_ENV"]["_ENV"].get(arg))
+                        if arg in self.call_stack[-1].upvalues:
+                            self.stack.append(self.call_stack[-1].upvalues[arg][arg])
+                        else:
+                            self.stack.append(self.call_stack[-1].upvalues["_ENV"]["_ENV"][arg])
                 case opcodes.RefItem():
                     self.stack.append([self.pop(), self.pop(), True])
                 case opcodes.GetItem():
@@ -175,11 +207,13 @@ class Interpreter():
                     func = self.pop(expect={"function"})
                     if isinstance(func[1], int):
                         lim = None if arg == 0 else arg - 1
-                        self.call_stack.append([self.ip, dict(zip(func[0], args + [None] * (len(func[0]) - len(args)))), func[3], lim, func[2]])
+                        self.call_stack.append(Frame(
+                            *func[2], func[1] - 1,
+                            func[3],
+                            lim,
+                            [Block(None, len(self.stack), dict(zip(func[0], args + [None] * (len(func[0]) - len(args)))))]
+                        ))
                         self.stack.append(bound)
-                        bytecode = self.call_stack[-1][4]
-                        strings, ops = opcodes.decode_bytecode(bytecode)
-                        self.ip = func[1] - 1
                     else:
                         try:
                             if func[1](self, args) is not None:
@@ -260,34 +294,38 @@ class Interpreter():
                         results = [self.pop() for _ in range(arg)]
                     while self.stack.pop() is not bound:
                         pass
-                    self.ip, _locals, _upvars, max_return, bytecode = self.call_stack.pop()
-                    while self.ip == -1:
-                        # pop all blocks
-                        self.ip, _locals, _upvars, max_return, bytecode = self.call_stack.pop()
-                    if max_return is None:
-                        for i, in zip(results):
+                    if len(self.stack) >= self.call_stack[-1].block_stack[0].stack_level:
+                        del self.stack[self.call_stack[-1].block_stack[0].stack_level+1:]
+                    else:
+                        raise RuntimeError("stack went under block depth? how")
+                    lim = self.call_stack[-1].return_limit
+                    self.call_stack.pop()
+                    if lim is None:
+                        for (i,) in zip(results):
                             self.stack.append(i)
                     else:
-                        for i, _ in zip(results, range(max_return)):
+                        for i, _ in zip(results, range(lim)):
                             self.stack.append(i)
-                    strings, ops = opcodes.decode_bytecode(bytecode)
+                    if call_stack_level is not None and len(self.call_stack) <= call_stack_level:
+                        break
                 case opcodes.BlockInfo(arg):
                     for idx in zip(arg[::4], arg[1::4], arg[2::4], arg[3::4]):
-                        self.call_stack[-1][1].setdefault(strings[int("".join(idx))], None)
+                        self.call_stack[-1].block_stack[-1].locals.setdefault(self.call_stack[-1].strings[int("".join(idx))], None)
                 case opcodes.PushBlock(arg):
-                    break_addr = None if arg == 0 else arg
-                    self.call_stack.append([-1, {}, self.call_stack[-1][2] | {k: self.call_stack[-1][1] for k in self.call_stack[-1][1]}, break_addr, bytecode])
+                    self.call_stack[-1].block_stack.append(Block(None if arg == 0 else arg, len(self.stack), {}))
                 case opcodes.PopBlock():
-                    if self.call_stack[-1][0] != -1:
-                        raise RuntimeError("pop function block")
-                    self.call_stack.pop()
+                    block = self.call_stack[-1].block_stack.pop()
+                    if len(self.stack) >= block.stack_level:
+                        del self.stack[block.stack_level+1:]
+                    else:
+                        raise RuntimeError("stack went under block depth? how")
                 case opcodes.Break():
                     while True:
-                        addr, _localvars, _upvalues, retlimit_or_break_addr = self.call_stack.pop()
-                        if addr != -1 or len(self.call_stack) == 0:
-                            raise RuntimeError("Nothing to break from")
-                        if retlimit_or_break_addr is not None:
-                            self.ip = retlimit_or_break_addr
+                        if not self.call_stack[-1].block_stack:
+                            raise RuntimeError("nothing to break out of")
+                        block = self.call_stack[-1].block_stack.pop()
+                        if block.break_addr is not None:
+                            self.call_stack[-1].ip = block.break_addr - 1  # TODO: -1?
                             break
                 case opcodes.Swap():
                     v1 = self.stack.pop()
@@ -299,24 +337,24 @@ class Interpreter():
                     block1 = self.pop()
                     cond = self.pop(expect={"boolean"})
                     if cond:
-                        self.ip = block1 - 1
+                        self.call_stack[-1].ip = block1 - 1
                 case opcodes.IfElse():
                     block2 = self.pop()
                     block1 = self.pop()
                     cond = self.pop(expect={"boolean"})
                     if cond:
-                        self.ip = block1 - 1
+                        self.call_stack[-1].ip = block1 - 1
                     else:
-                        self.ip = block2 - 1
+                        self.call_stack[-1].ip = block2 - 1
                 case opcodes.Jump(arg):
-                    self.ip = arg - 1
+                    self.call_stack[-1].ip = arg - 1
                 case opcodes.Dup(arg):
                     self.stack.append(self.stack[-arg-1])
                 case opcodes.Nop(arg) | opcodes.UpvalueInfo(arg):
                     pass
                 case _:
                     raise NotImplementedError(f"{opcode}")
-            self.ip += 1
+            self.call_stack[-1].ip += 1
 
     def set_top(self, arg):
         if arg < 0:
@@ -355,7 +393,12 @@ class Interpreter():
 
     def call(self, func, args):
         self.stack.append(bound)
-        self.call_stack.append([func[1], dict(zip(func[0], args + [None] * (len(func[0]) - len(args)))), func[3], None, func[2]])
+        self.call_stack.append(Frame(
+            *func[2], func[1],
+            func[3],
+            None,
+            [Block(None, len(self.stack), dict(zip(func[0], args + [None] * (len(func[0]) - len(args)))))]
+        ))
         self.stack.append(bound)
         self.run(len(self.call_stack) - 1)
         results = []
@@ -434,7 +477,7 @@ def load(interpreter, chunk, chunkname="<string>", mode="bt", env=None):
         chunk = out.serialize()
 
     with interpreter.push_stack_guard(top=1):
-        interpreter.call_stack.append([0, {"_ENV": env if env else interpreter.global_env}, {}, None, chunk])
+        interpreter.call_stack.append(Frame(*opcodes.decode_bytecode(chunk), 0, {}, None, [Block(None, len(interpreter.stack), {"_ENV": env if env else interpreter.global_env})]))
         interpreter.run(None)
         interpreter.call_stack.pop()
 
@@ -469,7 +512,7 @@ def main():
         "bor": ((), lua_bor, {})
     })
     func, rest = None, None
-    with open((filename := "table.lua"), encoding="ascii") as f:
+    with open((filename := "test2.lua"), encoding="ascii") as f:
         try:
             load_gen = load(interp, f.read(), filename)
             while True:
