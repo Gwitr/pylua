@@ -165,7 +165,7 @@ def parse_statement(instream: llexer.TokenStream, outstream: InstructionStream):
                     break
                 parse_var(instream, outstream, use_ref=True)
                 nvars += 1
-                tok, _ = instream.next(expect={"COMMA"})
+                tok, _ = instream.next(expect={"COMMA", "ASGN"})
 
             with outstream.push_stack_guard(top=nvars):
                 parse_expr(instream, outstream)
@@ -325,9 +325,11 @@ def parse_if(instream: llexer.TokenStream, outstream: InstructionStream):
             else:
                 parse_block(instream, outstream, {"END", "ELSE"})
             outstream.push(opcodes.Jump(jump2 := Label()))
-        outstream.push(jump1, jump2, opcodes.IfElse())
+        outstream.push(opcodes.IfElse())
+        outstream.push(jump1, jump2, opcodes.Nop())
     else:
-        outstream.push(jump1, opcodes.If())
+        outstream.push(opcodes.If())
+        outstream.push(jump1, opcodes.Nop())
 
 def parse_anon_function(instream: llexer.TokenStream, outstream: InstructionStream):
     printno()
@@ -375,10 +377,11 @@ def parse_tl_function(instream: llexer.TokenStream, outstream: InstructionStream
     if selfarg:
         params.append("self")
     while True:
-        tok, data = instream.next(expect={"RPAREN", "NAME"})
+        tok, data = instream.next(expect={"RPAREN", "NAME", "ELLIPSIS"})
         if tok == "RPAREN":
             break
-        params.append(data)
+        if tok == "NAME":
+            params.append(data)
         tok, data = instream.next(expect={"RPAREN", "COMMA"})
         if tok == "RPAREN":
             break
@@ -595,6 +598,17 @@ def parse_expr(instream: llexer.TokenStream, outstream: InstructionStream, optio
                 outstream.push(opcodes.PushString(data))
                 pop_unary_ops()
                 was_prev_value = True
+        elif tok == "ELLIPSIS":
+            if was_prev_value:
+                instream.rewind()
+                break
+            outstream.push(opcodes.PushBound())
+            outstream.push(opcodes.PushVarargs())
+            this_multi = True
+            multi_repl = outstream.push(opcodes.Nop())
+            outstream.push(opcodes.DiscardBound())
+            pop_unary_ops()
+            was_prev_value = True
         elif tok == "NUMBER":
             if was_prev_value:
                 instream.rewind()

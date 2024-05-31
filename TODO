@@ -12,6 +12,10 @@
   * labels, goto
   * multiple local assignment
   * metatables
+  * error propagation
+  * Multiple value collapse is still glitched to hell (see smth like #..., which btw shouldn't even parse at all)
+  * Fix the unstable ass next(...) function
+  * not, or, and
 - Standard library:
   * implement base [2/?]
   * implement table [5/7]

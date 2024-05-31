@@ -72,9 +72,10 @@ PushFalse = opcode_factory("PushFalse", "s", 2)
 # TODO: Consider giving this a fmt argument, to limit the amount of stack access
 # necessary ("sspspspps*" would mean sequence-item, sequence-item, pair-item, ..., pair-item, sequence-item, bounded-sequence)
 PushTable = opcode_factory("PushTable", "t")
+PushVarargs = opcode_factory("PushVarargs", "*", 0)
 
 Swap = opcode_factory("Swap", "S", 0)
-Dup = opcode_factory("Dup", "*")
+Dup = opcode_factory("Dup", "2")
 
 PushBound = opcode_factory("PushBound", "b", 0)
 PopBound = opcode_factory("PopBound", "B", 0)

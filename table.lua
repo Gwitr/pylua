@@ -1,5 +1,9 @@
-local table = {}
+table = {}
+
 function table.insert(t, pos_or_item, item_or_nil)
+    if type(t) ~= "table" then
+        error("table.insert parameter #1 must be table, got " .. type(t))
+    end
     if item_or_nil == nil then
         t[1+#t] = pos_or_item
         return
@@ -17,10 +21,14 @@ function table.concat(t, sep, i, j)
     local result = ""
     local first = true
     for idx=i,j do
-        if not first then
+        if first then -- corrupted if exit?
+            -- TODO: not opcode
+            print("test")
+        else
             result = result .. sep
         end
         result = result .. t[idx]
+        first = false
     end
     return result
 end
@@ -39,10 +47,10 @@ function table.move(a1, f, e, t, a2)
     return a2
 end
 
---[[function table.pack(...)
+function table.pack(...)
     -- TODO: use pairs(...) to figure out the true number of arguments. This will fail on nil!!
-    return { n=#..., ... }
-end]]
+    return { n=#{...}, ... }
+end
 
 function table.remove(t, pos)
     pos = bor(pos, #t)
@@ -71,5 +79,3 @@ local function dump_table(t)
         print(i, t[i])
     end
 end
-
-print(table.unpack({1, 2, 3, 4}))
