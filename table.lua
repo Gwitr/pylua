@@ -57,7 +57,7 @@ function table.remove(t, pos)
     for i=pos+1,#t do
         t[i-1] = t[i]
     end
-    t[#t] = nil  -- TODO: erase table element on nil assignment
+    t[#t] = nil
 end
 
 function table.sort(t, comp)

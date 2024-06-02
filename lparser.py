@@ -157,15 +157,15 @@ def parse_statement(instream: llexer.TokenStream, outstream: InstructionStream):
         outstream.push(opcodes.PushBound())
         typ = parse_var(instream, outstream, use_ref=True)
         tok, data = instream.next()
-        if tok in {"ASGN", "COMMA"}:
+        if tok in {"EQUALS", "COMMA"}:
             outstream.push(opcodes.DiscardBound())
             nvars = 1
             while True:
-                if tok == "ASGN":
+                if tok == "EQUALS":
                     break
                 parse_var(instream, outstream, use_ref=True)
                 nvars += 1
-                tok, _ = instream.next(expect={"COMMA", "ASGN"})
+                tok, _ = instream.next(expect={"COMMA", "EQUALS"})
 
             with outstream.push_stack_guard(top=nvars):
                 parse_expr(instream, outstream)
@@ -195,7 +195,7 @@ def parse_statement(instream: llexer.TokenStream, outstream: InstructionStream):
         with outstream.push_block(block_return_label := Label()):
             outstream.push(opcodes.PushBound())
             outstream.push(opcodes.RefName(name))
-            instream.next(expect={"ASGN"})
+            instream.next(expect={"EQUALS"})
             outstream.add_local(instream, name, allow_redefine=True)
             with outstream.push_stack_guard(top=1):
                 parse_expr(instream, outstream)
@@ -275,7 +275,7 @@ def parse_statement(instream: llexer.TokenStream, outstream: InstructionStream):
             outstream.add_local(instream, name)
             tok, data = instream.next()
             # TODO: Multiple local assignment
-            if tok != "ASGN":
+            if tok != "EQUALS":
                 # end of statement
                 instream.rewind()
                 return
@@ -513,7 +513,7 @@ def parse_table(instream: llexer.TokenStream, outstream: InstructionStream):
             name = data
             tok, data = instream.next()
             if tok != "COMMA":
-                if tok != "ASGN":
+                if tok != "EQUALS":
                     instream.rewind()
                 else:
                     with outstream.push_stack_guard(top=2):
@@ -529,7 +529,7 @@ def parse_table(instream: llexer.TokenStream, outstream: InstructionStream):
             with outstream.push_stack_guard(top=1):
                 parse_expr(instream, outstream)
             instream.next(expect={"RBRACKET"})
-            instream.next(expect={"ASGN"})
+            instream.next(expect={"EQUALS"})
             with outstream.push_stack_guard(top=1):
                 parse_expr(instream, outstream)
             n_pairs += 1

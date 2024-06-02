@@ -17,7 +17,7 @@ SPECIAL = {
     "then": "THEN", "else": "ELSE", "while": "WHILE", "do": "DO", "elseif": "ELSEIF",
     "for": "FOR", "nil": "NIL", "true": "TRUE", "false": "FALSE", "or": "OR", "and": "AND",
     "not": "NOT", "break": "BREAK",
-    "=": "ASGN", ".": "DOT", ":": "COLON", ";": "SEMICOLON", "(": "LPAREN", ")": "RPAREN",
+    "=": "EQUALS", ".": "DOT", ":": "COLON", ";": "SEMICOLON", "(": "LPAREN", ")": "RPAREN",
     "[": "LBRACKET", "]": "RBRACKET", ",": "COMMA", "+": "PLUS", "-": "DASH", "*": "STAR",
     "/": "SLASH", "{": "LCURLY", "}": "RCURLY", "#": "HASH",
     ">": "GT", "<": "LT", "~=": "TEQ", "==": "DEQ", ">=": "GEQ", "<=": "LEQ", "..": "CONCAT"
@@ -67,9 +67,6 @@ def lexer(text: str, filename: str):
         if (newline_reverse_pos := skiptext[::-1].find("\n")) != -1:
             col = newline_reverse_pos + 1
 
-    while True:
-        yield ((filename, line, col), ("EOF", None))
-
 class TokenStream:
 
     def __init__(self, text: str, filename: str, rewind_limit: int = 2):
@@ -89,7 +86,10 @@ class TokenStream:
 
     def next(self, expect: set[str] | None = None) -> tuple[tuple[str, int, int], tuple[str, str]]:
         while self.i >= len(self.buf):
-            self.buf.append(next(self.lexer))
+            try:
+                self.buf.append(next(self.lexer))
+            except StopIteration:
+                self.buf.append((self.buf[-1][0], ("EOF", None)))
             if len(self.buf) > self.rewind_limit:
                 self.buf.pop(0)
                 self.i -= 1
