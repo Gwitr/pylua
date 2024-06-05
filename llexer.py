@@ -27,7 +27,10 @@ ESCAPE_CHARS = ".()[]++*{}\\|"
 RE_WHITESPACE = re.compile(r"[ \t\r\n]")
 RE_COMMENT = re.compile(r"--(([^\[\n].*?)?(\n|\Z)|\[\[[\S\s]*?\]\])")
 RE_ELLIPSIS = re.compile(r"\.\.\.")
-RE_SPECIAL = re.compile("|".join("".join(f"\\{char}" if char in ESCAPE_CHARS else char for char in s) + "(?![A-Za-z0-9_])" * (s[-1] in string.ascii_letters) for s in sorted(SPECIAL, key=len)[::-1]))
+RE_SPECIAL = re.compile("|".join(
+    "".join(f"\\{char}" if char in ESCAPE_CHARS else char for char in s) + "(?![A-Za-z0-9_])" * (s[-1] in string.ascii_letters)
+    for s in sorted(SPECIAL, key=len)[::-1]
+))
 RE_NUMBER = re.compile(r"0|[1-9][0-9]*(\.[0-9]*)?")
 RE_QSTR = re.compile(r"'([^\n\\']|\\.)*'" + r'|"([^\n\\"]|\\.)*"')
 RE_QSTR_SUB = re.compile(r"\\(.)")
@@ -115,7 +118,6 @@ class TokenStream:
                 self.i -= 1
         res = self.buf[self.i][1]
         if expect is not None and res[0] not in expect:
-            # TODO: These should be ParseError-s
             expect_list = list(expect)
             if len(expect_list) == 1:
                 raise ParseError(self.pos, f"expected {expect_list[0]}, got {res[0]}")

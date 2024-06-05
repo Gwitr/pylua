@@ -6,9 +6,10 @@ from dataclasses import dataclass
 
 import opcodes
 from llexer import Tokens, ParseError
-from last import parse
+from lparser import parse
+from lgrammar import grammar
 
-DEBUG = True
+DEBUG = False
 
 bound = object()
 
@@ -500,7 +501,7 @@ def load(interpreter, chunk, chunkname="<string>", mode="bt", env=None):
         # except ParseError as e:
             # return None, str(e)
         try:
-            chunk = parse(Tokens.from_string(chunk, chunkname))
+            chunk = parse(grammar, Tokens.from_string(chunk, chunkname))
         except ParseError as e:
             return None, str(e)
         if DEBUG:
@@ -601,21 +602,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    # interp = Interpreter({
-    #     "print": ((), lua_print, {}),
-    #     "tostring": ((), lua_tostring, {}),
-    #     "type": ((), lua_type, {}),
-    #     "load": ((), lua_load, {}),
-    #     "bor": ((), lua_bor, {}),
-    #     "error": ((), lua_error, {}),
-    #     "next": ((), lua_next, {}),
-    #     "tonumber": ((), lua_tonumber, {})
-    # })
-    # func = None
-    # try:
-    #     gen = load(interp, "$0005table000400000001f00000005print0003hii0001x0001y0001z000110001200013;'0045+0000I0001n0000b0000t0000:0001b0000z0000c0002i0000'0014+0000I0003b0000z0004b0000c0005z0006z0007z0008$0000#0000~0000b0000!0000c0006c0007c0008f0003:0001#0000~0000b0000z0000c0002y0000b0000N0009N0010N0011$0000#0000~0000b0000!0000f0000", "tmp")
-    #     while True:
-    #         next(gen)
-    # except StopIteration as e:
-    #     func, *rest = e.value
-    # interp.call(func, [])

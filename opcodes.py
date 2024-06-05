@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 @dataclass(repr=False)
 class Opcode:
-    arg: int | str | None  # TODO: | Label | ClosureInfo
+    arg: "int | str | Label | ClosureInfo | None"
     string_arg: ClassVar[bool]
     op: ClassVar[str]
 
