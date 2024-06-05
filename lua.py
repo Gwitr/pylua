@@ -2,11 +2,11 @@
 
 from typing import Any
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import opcodes
-from llexer import TokenStream, ParseError
-from lparser import InstructionStream, parse_chunk
+from llexer import Tokens, ParseError
+from last import parse
 
 DEBUG = True
 
@@ -129,24 +129,15 @@ class Interpreter:
                         self.stack.append(self.call_stack[-1].ip + 1)
                         self.call_stack[-1].ip += arg
                     case opcodes.PushFunction(arg):
-                        # NOTE: This assumes that the first instruction of a function is always UpvalueInfo. That's kind of ugly
+                        # TODO: This may overcapture, test
                         argnames = reversed([self.pop() for _ in range(arg)])
                         offs = self.pop()
-                        upvalues_string = self.call_stack[-1].ops[offs][0].arg
                         upvalues = {}
-                        for idx in zip(upvalues_string[::4], upvalues_string[1::4], upvalues_string[2::4], upvalues_string[3::4]):
-                            upvalue_name = self.call_stack[-1].strings[int("".join(idx))]
-                            for frame in self.call_stack[::-1]:
-                                if upvalue_name in frame.upvalues:
-                                    upvalues[upvalue_name] = frame.upvalues[upvalue_name]
-                                    break
-                                for block in frame.block_stack:
-                                    if upvalue_name in block.locals:
-                                        upvalues[upvalue_name] = block.locals
-                                        break
-                                else:
-                                    continue
-                                break
+                        for frame in self.call_stack:
+                            upvalues.update(frame.upvalues)
+                            for block in frame.block_stack:
+                                for local in block.locals:
+                                    upvalues[local] = block.locals
                         self.stack.append((tuple(argnames), offs, (self.call_stack[-1].strings, self.call_stack[-1].ops), upvalues))
                     case opcodes.PushTable(arg):
                         trailing_values = []
@@ -193,7 +184,7 @@ class Interpreter:
                             else:
                                 self.stack.append(self.call_stack[-1].upvalues["_ENV"]["_ENV"].get(arg, None))
                     case opcodes.RefItem():
-                        self.stack.append([self.pop(), self.pop(), True])
+                        self.stack.append([self.pop(), self.pop(expect={"table"}), True])
                     case opcodes.GetItem():
                         arg = self.pop()
                         self.stack.append(self.pop().get(arg, None))
@@ -368,11 +359,15 @@ class Interpreter:
                     else:
                         raise InterpreterError("stack went under block depth? how") from None
                     self.call_stack.pop()
-                    if len(self.call_stack) <= call_stack_level:
+                    if len(self.call_stack) <= (call_stack_level or 0):
                         raise InterpreterError(f"uncaught {e}") from e
-                    if "_ERR" in self.call_stack[-1].block_stack[0].locals:
-                        self.call_stack[-1].block_stack[0].locals["_ERR"] = str(e)
-                        break
+                    for block in self.call_stack[-1].block_stack:
+                        if "_ERR" in block.locals:
+                            block.locals["_ERR"] = str(e)
+                            break
+                    else:
+                        continue
+                    break
 
             self.call_stack[-1].ip += 1
 
@@ -499,14 +494,18 @@ def load(interpreter, chunk, chunkname="<string>", mode="bt", env=None):
         mode = "b" if chunk[0] == "$" else "t"
 
     if mode == "t":
-        out = InstructionStream()
+        # out = InstructionStream()
+        # try:
+            # parse_chunk(TokenStream(chunk, chunkname), out)
+        # except ParseError as e:
+            # return None, str(e)
         try:
-            parse_chunk(TokenStream(chunk, chunkname), out)
+            chunk = parse(Tokens.from_string(chunk, chunkname))
         except ParseError as e:
             return None, str(e)
         if DEBUG:
             with open(f"bytecode-{chunkname}.txt", "w", encoding="ascii") as f:
-                strings, ops = opcodes.decode_bytecode(out.serialize())
+                strings, ops = opcodes.decode(chunk)
                 print(strings, file=f)
                 inline_countdowns = []
                 indent = 0
@@ -519,14 +518,16 @@ def load(interpreter, chunk, chunkname="<string>", mode="bt", env=None):
                     if isinstance(instr, opcodes.PushInline):
                         indent += 1
                         inline_countdowns.append(instr.arg)
-        chunk = out.serialize()
 
+    env = {"_ENV": env if env else interpreter.global_env}
     with interpreter.push_stack_guard(top=1):
-        interpreter.call_stack.append(Frame(*opcodes.decode_bytecode(chunk), 0, {}, [], None, False, [Block(None, len(interpreter.stack), {"_ENV": env if env else interpreter.global_env})]))
+        interpreter.call_stack.append(Frame(*opcodes.decode(chunk), 0, {}, [], None, False, [Block(None, len(interpreter.stack), env)]))
         interpreter.run(None)
         interpreter.call_stack.pop()
 
-    return (interpreter.stack.pop(),)
+    func = interpreter.stack.pop()
+    func[3]["_ENV"] = env
+    return (func,)
 
 def lua_load(interpreter, *args):
     if len(args) not in range(1, 5):
@@ -600,3 +601,21 @@ def main():
 
 if __name__ == "__main__":
     main()
+    # interp = Interpreter({
+    #     "print": ((), lua_print, {}),
+    #     "tostring": ((), lua_tostring, {}),
+    #     "type": ((), lua_type, {}),
+    #     "load": ((), lua_load, {}),
+    #     "bor": ((), lua_bor, {}),
+    #     "error": ((), lua_error, {}),
+    #     "next": ((), lua_next, {}),
+    #     "tonumber": ((), lua_tonumber, {})
+    # })
+    # func = None
+    # try:
+    #     gen = load(interp, "$0005table000400000001f00000005print0003hii0001x0001y0001z000110001200013;'0045+0000I0001n0000b0000t0000:0001b0000z0000c0002i0000'0014+0000I0003b0000z0004b0000c0005z0006z0007z0008$0000#0000~0000b0000!0000c0006c0007c0008f0003:0001#0000~0000b0000z0000c0002y0000b0000N0009N0010N0011$0000#0000~0000b0000!0000f0000", "tmp")
+    #     while True:
+    #         next(gen)
+    # except StopIteration as e:
+    #     func, *rest = e.value
+    # interp.call(func, [])

@@ -1,7 +1,8 @@
 # pylint: disable=missing-class-docstring,missing-function-docstring,missing-module-docstring
 
+import collections
 from typing import ClassVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 @dataclass(repr=False)
 class Opcode:
@@ -18,6 +19,43 @@ class Opcode:
         if self.arg is None:
             raise ValueError("opcode arg must not be none")
 
+class Label:
+
+    def __sub__(self, other):
+        if not isinstance(other, Label):
+            return NotImplemented
+        return LabelDifference(self, other)
+
+@dataclass
+class LabelDifference:
+    lhs: Label
+    rhs: Label
+    offs: int = 0
+
+    def __add__(self, other):
+        if not isinstance(other, int):
+            return NotImplemented
+        return LabelDifference(self.lhs, self.rhs, self.offs + other)
+
+    def __sub__(self, other):
+        if not isinstance(other, int):
+            return NotImplemented
+        return LabelDifference(self.lhs, self.rhs, self.offs - other)
+
+@dataclass
+class LabelTarget:
+    label: Label
+
+class StringRef(collections.UserString):
+    __hash__ = None
+
+    def set(self, data):
+        self.data = data
+
+@dataclass
+class ClosureInfo:
+    localvars: set = field(default_factory=set)
+
 def opcode_factory(cls_name, predef_op, predef_arg=None, *, is_string_arg=False):
     @dataclass(repr=False)
     class Subclass(Opcode):
@@ -27,7 +65,48 @@ def opcode_factory(cls_name, predef_op, predef_arg=None, *, is_string_arg=False)
     Subclass.__name__ = Subclass.__qualname__ = cls_name
     return Subclass
 
-def decode_bytecode(bytecode):
+def encode(code):
+    strings = []
+    def add_string(s):
+        try:
+            return strings.index(s)
+        except ValueError:
+            if len(strings) == 9999:
+                raise ValueError("chunk has over 9999 strings") from None
+            strings.append(s)
+            return len(strings) - 1
+
+    labels = {}
+    ip = 0
+    for op in code:
+        if isinstance(op, LabelTarget):
+            labels[op.label] = ip
+        else:
+            ip += 1
+
+    result = ""
+    for op in code:
+        if isinstance(op, LabelTarget):
+            continue
+        arg = op.arg
+        if isinstance(arg, str):
+            arg = add_string(arg)
+
+        elif isinstance(arg, ClosureInfo):
+            arg = add_string("".join(str(add_string(i)).zfill(4) for i in arg.localvars))
+
+        elif isinstance(arg, Label):
+            arg = labels[arg]
+
+        elif isinstance(arg, LabelDifference):
+            arg = labels[arg.lhs] - labels[arg.rhs]
+
+        if not 0 <= arg < 9999:
+            raise ValueError(f"{op} arg(={arg}) out of range")
+        result += op.op + str(arg).zfill(4)
+    return "$" + "".join(f"{len(string):04d}{string}" for string in strings) + ";" + result
+
+def decode(bytecode):
     strings = []
     i = 1
     while bytecode[i] != ";":

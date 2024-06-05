@@ -21,9 +21,8 @@ function table.concat(t, sep, i, j)
     local result = ""
     local first = true
     for idx=i,j do
-        if first then -- corrupted if exit?
+        if first then
             -- TODO: not opcode
-            print("test")
         else
             result = result .. sep
         end

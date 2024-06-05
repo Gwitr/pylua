@@ -34,6 +34,10 @@ RE_QSTR_SUB = re.compile(r"\\(.)")
 RE_NAME = re.compile(r"[A-Za-z_][A-Za-z_0-9]*")
 
 def lexer(text: str, filename: str):
+    if not text.strip():
+        yield ((filename, 1, 1), ("EOF", None))
+        return
+
     i = 0
     line = 1
     col = 1
@@ -66,6 +70,22 @@ def lexer(text: str, filename: str):
         line += skiptext.count("\n")
         if (newline_reverse_pos := skiptext[::-1].find("\n")) != -1:
             col = newline_reverse_pos + 1
+
+class Tokens:
+
+    def __init__(self, toks, idx):
+        self.toks = toks
+        self.idx = idx
+
+    def __hash__(self):
+        return hash((self.toks, self.idx))
+
+    @classmethod
+    def from_string(cls, text, filename):
+        return Tokens(tuple(lexer(text, filename)), 0)
+
+    def advance(self):
+        return (self.toks[self.idx] if self.idx < len(self.toks) else (self.toks[-1][0], ("EOF", None)), Tokens(self.toks, self.idx + 1))
 
 class TokenStream:
 
