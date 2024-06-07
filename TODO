@@ -9,7 +9,7 @@
   * metatables
   * not, or, and
   * userdata, lightuserdata
-- Standard library:
+- Standard library: [40/112] [36%]
   * implement basic [12/22]
   * implement package [0/9]
   * implement string [0/17]
