@@ -8,17 +8,18 @@
   * multiple local assignment
   * metatables
   * not, or, and
+  * userdata, lightuserdata
 - Standard library:
   * implement basic [12/22]
-  * implement package [0/?]
-  * implement string [0/?]
-  * implement utf8 [0/?]
+  * implement package [0/9]
+  * implement string [0/17]
+  * implement utf8 [0/5]
   * implement table [5/7]
   * implement math [23/23]
    > type coercion
    > test the thing
-  * implement io [0/?]
-  * implement os [0/?]
+  * implement io [0/11] ('file' userdatum: [0/7])
+  * implement os [0/11]
 
 - Scratch compatibility (for later):
   * Convert lexer & parser into Lua
