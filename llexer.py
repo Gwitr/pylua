@@ -56,13 +56,13 @@ def lexer(text: str, filename: str):
             yield ((filename, line, col), (SPECIAL[match.group(0)], None))
 
         elif (match := RE_NUMBER.match(text[i:])):
-            yield ((filename, line, col), ("NUMBER", match.group(0)))  # pass as string to avoid conversion-related precision issues
+            yield ((filename, line, col), ("NUMBER", match.group(0).encode("ascii")))  # pass as string to avoid conversion-related precision issues
 
         elif (match := RE_QSTR.match(text[i:])):
-            yield ((filename, line, col), ("QSTR", RE_QSTR_SUB.sub(r"\1", match.group(0)[1:-1])))  # TODO: Resolve escapes
+            yield ((filename, line, col), ("QSTR", RE_QSTR_SUB.sub(r"\1", match.group(0)[1:-1]).encode("utf8")))  # TODO: Resolve escapes
 
         elif (match := RE_NAME.match(text[i:])):
-            yield ((filename, line, col), ("NAME", match.group(0)))
+            yield ((filename, line, col), ("NAME", match.group(0).encode("ascii")))
 
         else:
             raise ParseError((filename, line, col), f"unexpected character '{text[i]}'")

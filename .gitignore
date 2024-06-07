@@ -1,3 +1,4 @@
 bytecode-*
 .pylintrc
 __pycache__
+lua-5.4.6-tests

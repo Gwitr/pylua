@@ -5,7 +5,7 @@ from typing import ClassVar
 import opcodes
 from opcodes import Label, LabelTarget, ClosureInfo
 
-LocalDecl = opcodes.opcode_factory("LocalDecl", "\0", 0)  # Fake opcode that only exists during parsing
+LocalDecl = opcodes.opcode_factory("LocalDecl", b"\0", 0)  # Fake opcode that only exists during parsing
 
 class Node:
     code: list[opcodes.Opcode]
@@ -65,18 +65,18 @@ class For(Statement):
             opcodes.PushBound(), opcodes.RefName(name), *start_value.with_ctx(top=1).code, opcodes.SetDual(1),
 
             *end_value.with_ctx(top=1).code,
-            *(step.with_ctx(top=1).code if step else [opcodes.PushNumber("1")]),
+            *(step.with_ctx(top=1).code if step else [opcodes.PushNumber(b"1")]),
 
             LabelTarget(jump_target := Label()), opcodes.PushBound(),
-                opcodes.Dup(1), opcodes.Sign(),
-                opcodes.Dup(0), opcodes.Dup(4), opcodes.Multiply(),
+                opcodes.Dup(0), opcodes.Sign(),
+                opcodes.Dup(0), opcodes.Dup(3), opcodes.Multiply(),
                 opcodes.GetName(name), opcodes.Dup(2), opcodes.Multiply(),
                 opcodes.GreaterEqual(), opcodes.Swap(),
             opcodes.SetTop(1), opcodes.DiscardBound(),
 
             opcodes.PushInline((end := Label()) - (start := Label()) - 1),
             LabelTarget(start),
-            *block.code,
+            *block.with_ctx(top=0).code,
             opcodes.RefName(name), opcodes.GetName(name), opcodes.Dup(2), opcodes.Add(), opcodes.SetDual(1),
             opcodes.Jump(jump_target),
 
@@ -344,7 +344,6 @@ class Chunk(Node):
 
     def __init__(self, body: Node):
         self.code = [
-            opcodes.PushInline((end := Label()) - (start := Label()) - 1),
-            LabelTarget(start), *body.with_ctx(function=True).code,
-            LabelTarget(end), opcodes.PushFunction(0)
+            *body.with_ctx(function=True).code,
+            opcodes.PushBound(), opcodes.Return(0)
         ]

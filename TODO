@@ -1,26 +1,25 @@
 - Syntax:
   * for ... in ... do ... end
-  * restargs
   * raw strings
   * labels, goto
-  * one argument calls
-  * don't parse -x"a" as (-x)"a"
+  * the rest of the operators (at least ^)
 - Interpreter:
-  * IMPORTANT - does a,b = 1 set b to nil, or leave it unset?
-  * IMPORTANT - test the behavior of (x()) vs x()
-  * threads
   * labels, goto
   * multiple local assignment
   * metatables
-  * error propagation
-  * Multiple value collapse is still glitched to hell (see smth like #..., which btw shouldn't even parse at all)
-  * Fix the unstable ass next(...) function
   * not, or, and
 - Standard library:
-  * implement base [2/?]
-  * implement table [5/7]
+  * implement basic [12/22]
+  * implement package [0/?]
   * implement string [0/?]
-  * implement coroutine [0/?]
+  * implement utf8 [0/?]
+  * implement table [5/7]
+  * implement math [23/23]
+   > type coercion
+   > test the thing
+  * implement io [0/?]
+  * implement os [0/?]
+
 - Scratch compatibility (for later):
   * Convert lexer & parser into Lua
   * Make the code procedural

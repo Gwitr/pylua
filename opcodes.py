@@ -18,6 +18,8 @@ class Opcode:
     def __post_init__(self):
         if self.arg is None:
             raise ValueError("opcode arg must not be none")
+        if not isinstance(self.arg, (bytes, int, ClosureInfo, Label, LabelDifference)):
+            raise TypeError("opcode arg must be one of bytes, int, ClosureInfo, Label, or LabelDifference")
 
 class Label:
 
@@ -84,16 +86,16 @@ def encode(code):
         else:
             ip += 1
 
-    result = ""
+    result = b""
     for op in code:
         if isinstance(op, LabelTarget):
             continue
         arg = op.arg
-        if isinstance(arg, str):
+        if isinstance(arg, bytes):
             arg = add_string(arg)
 
         elif isinstance(arg, ClosureInfo):
-            arg = add_string("".join(str(add_string(i)).zfill(4) for i in arg.localvars))
+            arg = add_string(b"".join(str(add_string(i)).zfill(4).encode("ascii") for i in arg.localvars))
 
         elif isinstance(arg, Label):
             arg = labels[arg]
@@ -103,14 +105,14 @@ def encode(code):
 
         if not 0 <= arg < 9999:
             raise ValueError(f"{op} arg(={arg}) out of range")
-        result += op.op + str(arg).zfill(4)
-    return "$" + "".join(f"{len(string):04d}{string}" for string in strings) + ";" + result
+        result += op.op + str(arg).zfill(4).encode("ascii")
+    return b"$" + b"".join(str(len(string)).zfill(4).encode("ascii") + string for string in strings) + b";" + result
 
 def decode(bytecode):
     strings = []
     i = 1
-    while bytecode[i] != ";":
-        l = int(bytecode[i:i+4].lstrip("0") or "0")
+    while bytecode[i] != b";"[0]:
+        l = int(bytecode[i:i+4].lstrip(b"0") or b"0")
         i += 4
         strings.append(bytecode[i:i+l])
         i += l
@@ -123,7 +125,8 @@ def decode(bytecode):
     i += 1
     while i < len(bytecode):
         op, *rest = bytecode[i:i+5]
-        arg = int("".join(rest).lstrip("0") or "0")
+        op = bytes([op])
+        arg = int(bytes(rest).lstrip(b"0") or b"0")
         cls = type_map[op, (arg if op in predef_arg else None)]
         if cls.string_arg:
             arg = strings[arg]
@@ -132,63 +135,63 @@ def decode(bytecode):
         j += 5
     return strings, ops
 
-Nop = opcode_factory("Nop", " ", 0)
+Nop = opcode_factory("Nop", b" ", 0)
 
-SetDual = opcode_factory("SetDual", ":")
+SetDual = opcode_factory("SetDual", b":")
 
-RefName = opcode_factory("RefName", "n", is_string_arg=True)
-RefItem = opcode_factory("RefItem", "i", 0)
-GetName = opcode_factory("GetName", "z", is_string_arg=True)
-GetItem = opcode_factory("GetItem", "y", 0)
+RefName = opcode_factory("RefName", b"n", is_string_arg=True)
+RefItem = opcode_factory("RefItem", b"i", 0)
+GetName = opcode_factory("GetName", b"z", is_string_arg=True)
+GetItem = opcode_factory("GetItem", b"y", 0)
 
-PushString = opcode_factory("PushString", "c", is_string_arg=True)
-PushNumber = opcode_factory("PushNumber", "N", is_string_arg=True)
-PushFunction = opcode_factory("PushFunction", "f")
-PushInline = opcode_factory("PushInline", "'")  # arg lists number of bytecode characters to skip and push as a string
-PushNil = opcode_factory("PushNil", "s", 0)
-PushTrue = opcode_factory("PushTrue", "s", 1)
-PushFalse = opcode_factory("PushFalse", "s", 2)
+PushString = opcode_factory("PushString", b"c", is_string_arg=True)
+PushNumber = opcode_factory("PushNumber", b"N", is_string_arg=True)
+PushFunction = opcode_factory("PushFunction", b"f")
+PushInline = opcode_factory("PushInline", b"'")  # arg lists number of bytecode characters to skip and push as a string
+PushNil = opcode_factory("PushNil", b"s", 0)
+PushTrue = opcode_factory("PushTrue", b"s", 1)
+PushFalse = opcode_factory("PushFalse", b"s", 2)
 # TODO: Consider giving this a fmt argument, to limit the amount of stack access
 # necessary ("sspspspps*" would mean sequence-item, sequence-item, pair-item, ..., pair-item, sequence-item, bounded-sequence)
-PushTable = opcode_factory("PushTable", "t")
-PushVarargs = opcode_factory("PushVarargs", "*", 0)
+PushTable = opcode_factory("PushTable", b"t")
+PushVarargs = opcode_factory("PushVarargs", b"*", 0)
 
-Swap = opcode_factory("Swap", "S", 0)
-Dup = opcode_factory("Dup", "2")
+Swap = opcode_factory("Swap", b"S", 0)
+Dup = opcode_factory("Dup", b"2")
 
-PushBound = opcode_factory("PushBound", "b", 0)
-PopBound = opcode_factory("PopBound", "B", 0)
-DiscardBound = opcode_factory("DiscardBound", "~", 0)
-SetTop = opcode_factory("SetTop", "#")
+PushBound = opcode_factory("PushBound", b"b", 0)
+PopBound = opcode_factory("PopBound", b"B", 0)
+DiscardBound = opcode_factory("DiscardBound", b"~", 0)
+SetTop = opcode_factory("SetTop", b"#")
 
-Call = opcode_factory("Call", "$")
-Return = opcode_factory("Return", "!")
+Call = opcode_factory("Call", b"$")
+Return = opcode_factory("Return", b"!")
 
-Add = opcode_factory("Add", "o", 0)
-Subtract = opcode_factory("Subtract", "o", 1)
-Multiply = opcode_factory("Multiply", "o", 2)
-Divide = opcode_factory("Divide", "o", 3)
-Negative = opcode_factory("Negative", "o", 4)
-Len = opcode_factory("Len", "o", 5)
-Equal = opcode_factory("Equal", "o", 6)
-Less = opcode_factory("Less", "o", 7)
-Greater = opcode_factory("Greater", "o", 8)
-LessEqual = opcode_factory("LessEqual", "o", 9)
-GreaterEqual = opcode_factory("GreaterEqual", "o", 10)
-Unequal = opcode_factory("Unequal", "o", 11)
-Sign = opcode_factory("Sign", "o", 12)
+Add = opcode_factory("Add", b"o", 0)
+Subtract = opcode_factory("Subtract", b"o", 1)
+Multiply = opcode_factory("Multiply", b"o", 2)
+Divide = opcode_factory("Divide", b"o", 3)
+Negative = opcode_factory("Negative", b"o", 4)
+Len = opcode_factory("Len", b"o", 5)
+Equal = opcode_factory("Equal", b"o", 6)
+Less = opcode_factory("Less", b"o", 7)
+Greater = opcode_factory("Greater", b"o", 8)
+LessEqual = opcode_factory("LessEqual", b"o", 9)
+GreaterEqual = opcode_factory("GreaterEqual", b"o", 10)
+Unequal = opcode_factory("Unequal", b"o", 11)
+Sign = opcode_factory("Sign", b"o", 12)
 # TODO: Proper short-circuiting OR/AND behavior
-Or = opcode_factory("Or", "o", 13)
-And = opcode_factory("And", "o", 14)
-Not = opcode_factory("Not", "o", 15)
-Concat = opcode_factory("Concat", "o", 16)
+Or = opcode_factory("Or", b"o", 13)
+And = opcode_factory("And", b"o", 14)
+Not = opcode_factory("Not", b"o", 15)
+Concat = opcode_factory("Concat", b"o", 16)
 
-PushBlock = opcode_factory("PushBlock", "+")
-PopBlock = opcode_factory("PopBlock", "-", 0)
-BlockInfo = opcode_factory("BlockInfo", "I", is_string_arg=True)
-UpvalueInfo = opcode_factory("UpvalueInfo", "^", is_string_arg=True)
-Break = opcode_factory("Break", "x", 0)
+PushBlock = opcode_factory("PushBlock", b"+")
+PopBlock = opcode_factory("PopBlock", b"-", 0)
+BlockInfo = opcode_factory("BlockInfo", b"I", is_string_arg=True)
+UpvalueInfo = opcode_factory("UpvalueInfo", b"^", is_string_arg=True)
+Break = opcode_factory("Break", b"x", 0)
 
-If = opcode_factory("If", "?", 0)
-IfElse = opcode_factory("IfElse", "?", 1)
-Jump = opcode_factory("Jump", ">")
+If = opcode_factory("If", b"?", 0)
+IfElse = opcode_factory("IfElse", b"?", 1)
+Jump = opcode_factory("Jump", b">")

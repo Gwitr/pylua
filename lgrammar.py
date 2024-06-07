@@ -159,23 +159,12 @@ __all__ = ("grammar",)
 
 def main():
     """test main"""
-    import time  # pylint: disable=import-outside-toplevel
+    print(opcodes.decode(parse(grammar, Tokens.from_string("""
 
-    builtin = ["basic.lua", "table.lua", "test.lua"]
-    toklists = []
-    start = time.perf_counter()
-    for filename in builtin:
-        with open(filename, encoding="ascii") as f:
-            toklists.append(Tokens.from_string(f.read(), filename))
-            print("done lex", filename)
-    print(f"{1000 * (time.perf_counter() - start):.2f} ms")
-    print("total tokens", sum(len(t.toks) for t in toklists))
+local x, y, z = 1, 2
+print(x, y, z)
 
-    start = time.perf_counter()
-    for tokens in toklists:
-        parse(grammar, tokens)
-        print("done parse", filename)
-    print(f"{1000 * (time.perf_counter() - start):.2f} ms")
+""", "<string>"))))
 
 if __name__ == "__main__":
     main()
